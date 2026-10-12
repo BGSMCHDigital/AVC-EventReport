@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <title>AVC EVENTREPORT</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div id="app"></div>
+    <script>
+        const $ = s => document.querySelector(s), app = $('#app');
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const I = {
+            file: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg>',
+            users: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="9" cy="8" r="4"/><path d="M2 21v-1a6 6 0 0 1 12 0v1M17 4a4 4 0 0 1 0 8M22 21v-1a6 6 0 0 0-4-5.6"/></svg>',
+            spark: '<svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3l2 6 6 2-6 2-2 6-2-6-6-2 6-2z"/></svg>'
+        };
+        // ---- storage (local only; try/catch guarded) ----
+        let mem = {}; const st = { get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : (k in mem ? mem[k] : d) } catch (e) { return k in mem ? mem[k] : d } }, set(k, v) { mem[k] = v; try { localStorage.setItem(k, JSON.stringify(v)); return true } catch (e) { return false } } };
+        let draft = null, article = null, flash = '';
+        const nav = h => { location.hash = h };
+        const subs = () => st.get('avc_subs', []);
+        const me = () => { try { return sessionStorage.getItem('avc_user') } catch (e) { return mem.u } };
+        function notify(message, kind = 'info') {
+            const notice = document.createElement('div');
+            notice.className = `app-notice ${kind}`;
+            notice.setAttribute('role', kind == 'error' ? 'alert' : 'status');
+            notice.textContent = message;
+            app.prepend(notice);
+            setTimeout(() => notice.remove(), 6000)
+        }
+        function showDialog({ title, message, confirmLabel = 'Continue', reason = false }) {
+            return new Promise(resolve => {
+                const dialog = document.createElement('dialog');
+                dialog.className = 'app-dialog';
+                const form = document.createElement('form');
+                form.className = 'app-dialog-form';
+                form.method = 'dialog';
+                const heading = document.createElement('h2');
+                heading.textContent = title;
+                const description = document.createElement('p');
+                description.textContent = message;
+                form.append(heading, description);
+                let input;
+                if (reason) {
+                    const label = document.createElement('label');
+                    label.textContent = 'Reason';
+                    input = document.createElement('textarea');
+                    input.rows = 4;
+                    input.maxLength = 1000;
+                    input.required = true;
+                    input.setAttribute('aria-label', 'Reason for rejection');
+                    const error = document.createElement('span');
+                    error.className = 'err dialog-error';
+                    error.setAttribute('aria-live', 'polite');
+                    form.append(label, input, error)
+                }
+                const actions = document.createElement('div');
+                actions.className = 'app-dialog-actions';
+                const cancel = document.createElement('button');
+                cancel.type = 'button';
+                cancel.className = 'btn';
+                cancel.textContent = 'Cancel';
+                cancel.addEventListener('click', () => dialog.close());
+                const confirmButton = document.createElement('button');
+                confirmButton.type = 'submit';
+                confirmButton.className = 'btn p';
+                confirmButton.textContent = confirmLabel;
+                actions.append(cancel, confirmButton);
+                form.append(actions);
+                dialog.append(form);
+                dialog.addEventListener('close', () => {
+                    dialog.remove();
+                    resolve(dialog.returnValue || null)
+                }, { once: true });
+                form.addEventListener('submit', event => {
+                    event.preventDefault();
+                    const value = reason ? input.value.trim() : 'confirm';
+                    if (reason && !value) {
+                        form.querySelector('.dialog-error').textContent = 'Enter a reason to continue.';
+                        input.focus();
+                        return
+                    }
+                    dialog.close(value)
+                });
+                document.body.append(dialog);
+                dialog.showModal();
+                if (input) input.focus()
+            })
+        }
+        function updateSubmission(id, action, change) {
+            const all = subs();
+            const record = all.find(item => item.id == id);
+            if (!record) {
+                notify('This submission could not be found. Refresh the submissions list and try again.', 'error');
+                return false
+            }
+            change(record);
+            if (!Array.isArray(record.history)) record.history = [];
+            record.history.push({ at: new Date().toISOString(), action, by: me() });
+            return st.set('avc_subs', all)
+        }
+        const topbar = () => `<header class="top"><a class="logo" href="#/">AVC <b>EVENTREPORT</b></a><div><a class="btn" style="border:0" href="#/login">Log in</a> <a class="btn p" href="#/submit">Get Started</a></div></header>`;
+        function home() {
+            app.innerHTML = topbar() + `<section class="hero"><div class="eyebrow">AVC CAMPUS EVENT REPORTING</div><h1>AI-Powered Event Reporting</h1><h2>System Simplified</h2><p>Submit your event details. Get a professionally written article in seconds. Review, edit, and publish—all in one place.</p><a class="btn p" href="#/submit">Submit an Event →</a> <a class="btn" href="#/login">Editor Login</a></section>
+<section class="sec"><h2>How it works</h2><p class="mut">Three steps from raw event data to published article.</p><div class="grid3" style="text-align:left">
+<div class="card"><div class="ic">${I.file}</div><h3>Structured Submission</h3><p>Submit event details through a clean, guided form.</p></div>
+<div class="card"><div class="ic">${I.spark}</div><h3>AI-Powered Writing</h3><p>Automatically generate professional articles from submitted event information.</p></div>
+<div class="card"><div class="ic">${I.users}</div><h3>Editorial Workflow</h3><p>Editors review, refine, approve and publish event reports.</p></div></div></section>
+<section class="sec" style="background:var(--card)"><h2>Ready to streamline your event reporting?</h2><p class="mut">Start submitting events today.</p><a class="btn p" href="#/submit">Submit an Event →</a></section><footer>© 2026 AVC EVENTREPORT.</footer>`}
+        // ---- submit form ----
+        function submit() {
+            const d = draft || (draft = { title: '', type: 'single', date: '', start: '', end: '', dates: [''], loc: '', dept: '', desc: '', people: '', name: '', email: '', sdept: '', phone: '', photos: [] });
+            const f = (k, l, ph, t = 'text') => `<div><label>${l}</label><input type="${t}" data-k="${k}" placeholder="${ph}" value="${esc(d[k])}"><div class="err" id="e-${k}"></div></div>`;
+            let dt = ''; if (d.type == 'single') dt = `<div class="row">${f('date', 'Event Date', '', 'date')}${f('loc', 'Location', 'Main Auditorium')}</div>`;
+            else if (d.type == 'range') dt = `<div class="row">${f('start', 'Start Date', '', 'date')}${f('end', 'End Date', '', 'date')}</div>${f('loc', 'Location', 'Main Auditorium')}`;
+            else dt = `<label>Event Dates</label>${d.dates.map((x, i) => `<div style="display:flex;gap:8px;margin-bottom:6px"><input type="date" data-di="${i}" value="${x}">${d.dates.length > 1 ? `<button class="btn sm er" data-rd="${i}">Remove</button>` : ''}</div>`).join('')}<button class="btn sm" id="ad">+ Add Date</button><div class="err" id="e-date"></div>${f('loc', 'Location', 'Main Auditorium')}`;
+            app.innerHTML = topbar() + `<div class="form"><h1 style="font-size:22px">Submit Event Report</h1><div style="color:var(--blue);font-size:13px">Fill in the event details below. AI will generate a professional article.</div>
+${f('title', 'Event Title', 'Annual Science Symposium 2026')}
+<label>Event Date Type</label><div class="radios">${[['single', 'Single Day'], ['range', 'Date Range'], ['multi', 'Multiple Dates']].map(([v, l]) => `<label><input type="radio" name="t" value="${v}" ${d.type == v ? 'checked' : ''}>${l}</label>`).join('')}</div>
+${dt}${f('dept', 'Organizing Department Name', 'Department of Computer Science')}
+<label>Event Description</label><textarea data-k="desc" placeholder="Describe what happened at the event, the purpose, and any notable moments...">${esc(d.desc)}</textarea><div class="err" id="e-desc"></div>
+<label>Notable Participants / Speakers</label><textarea data-k="people" placeholder="List notable guests, speakers, or participants.">${esc(d.people)}</textarea>
+<label>Event Photos (Optional)</label><div class="drop"><button class="btn" id="up">⬆ Upload Photos</button><input id="fi" type="file" accept="image/jpeg,image/png,image/webp" multiple hidden><div class="mut" style="font-size:11px;margin-top:6px">Max 10 images, JPG, PNG, or WebP (max 8 MB each).</div><div class="err" id="e-ph"></div><div class="thumbs" id="th"></div></div>
+<hr><h3>Your Information</h3><div class="row">${f('name', 'Your Name', 'John Doe')}${f('email', 'Email Address', 'john@university.edu', 'email')}</div><div class="row">${f('sdept', 'Department', 'Computer Science')}${f('phone', 'Phone Number', '+91 98765 43210', 'tel')}</div>
+<hr><button class="btn p" id="gen">${I.spark} Generate Article</button> <button class="btn" id="cn">Cancel</button></div>`;
+            const th = () => { $('#th').innerHTML = d.photos.map((p, i) => `<div class="th"><img src="${p.src}" alt=""><div><button class="mv" data-m="${i}" title="Move left">◀</button><button data-x="${i}" title="Remove">✕</button></div></div>`).join('') }; th();
+            document.querySelectorAll('[data-k]').forEach(e => e.oninput = () => d[e.dataset.k] = e.value);
+            document.querySelectorAll('[data-di]').forEach(e => e.oninput = () => d.dates[e.dataset.di] = e.value);
+            document.querySelectorAll('[name=t]').forEach(e => e.onchange = () => { d.type = e.value; submit() });
+            document.querySelectorAll('[data-rd]').forEach(e => e.onclick = () => { d.dates.splice(e.dataset.rd, 1); submit() });
+            if ($('#ad')) $('#ad').onclick = () => { d.dates.push(''); submit() };
+            $('#up').onclick = () => $('#fi').click();
+            $('#th').onclick = e => { const b = e.target; if (b.dataset.x != null) { d.photos.splice(b.dataset.x, 1) } else if (b.dataset.m != null) { const i = +b.dataset.m; if (i > 0) [d.photos[i - 1], d.photos[i]] = [d.photos[i], d.photos[i - 1]] } th() };
+            $('#fi').onchange = async e => {
+                const er = $('#e-ph'); er.textContent = ''; for (const f of e.target.files) {
+                    if (d.photos.length >= 10) { er.textContent = 'Maximum 10 images.'; break }
+                    if (!/^image\/(jpeg|png|webp)$/.test(f.type)) { er.textContent = f.name + ': unsupported type.'; continue } if (f.size > 8e6) { er.textContent = f.name + ': larger than 8 MB.'; continue }
+                    try { d.photos.push({ name: f.name, src: await shrink(f), caption: '' }); th() }
+                    catch (error) { er.textContent = `${f.name}: could not be processed.` }
+                }
+                e.target.value = ''
+            };
+            $('#cn').onclick = async () => { if (await showDialog({ title: 'Discard this report?', message: 'Unsaved changes will be lost.', confirmLabel: 'Discard' })) { draft = null; nav('/') } };
+            $('#gen').onclick = () => {
+                document.querySelectorAll('.err').forEach(x => x.textContent = ''); const R = { title: 1, loc: 1, dept: 1, desc: 1, name: 1, email: 1, phone: 1 }; let bad = 0;
+                const E = (k, m) => { const el = $('#e-' + k); if (el) el.textContent = m; bad = 1 };
+                for (const k in R) if (!String(d[k]).trim()) E(k, 'Required');
+                if (d.email && !/^\S+@\S+\.\S+$/.test(d.email)) E('email', 'Invalid email'); if (d.phone && !/^[+\d][\d\s()-]{6,}$/.test(d.phone)) E('phone', 'Invalid phone');
+                if (d.type == 'single' && !d.date) E('date', 'Required');
+                if (d.type == 'range') { if (!d.start) E('start', 'Required'); if (!d.end) E('end', 'Required'); if (d.start && d.end && d.end < d.start) E('end', 'End date is before start date') }
+                if (d.type == 'multi' && !d.dates.some(x => x)) E('date', 'Add at least one date');
+                if (bad) return; article = generate(d); nav('/article-preview')
+            }
+        }
+        function shrink(f) { return new Promise((resolve, reject) => { const u = URL.createObjectURL(f), im = new Image(); im.onload = () => { try { const s = Math.min(1, 1400 / Math.max(im.width, im.height)), c = document.createElement('canvas'); c.width = im.width * s; c.height = im.height * s; const ctx = c.getContext('2d'); if (!ctx) throw new Error('Canvas is unavailable.'); ctx.drawImage(im, 0, 0, c.width, c.height); resolve(c.toDataURL('image/jpeg', .85)) } catch (error) { reject(error) } finally { URL.revokeObjectURL(u) } }; im.onerror = () => { URL.revokeObjectURL(u); reject(new Error('Image could not be decoded.')) }; im.src = u }) }
+        const fmt = x => x ? new Date(x + 'T00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+        const dateText = d => d.type == 'single' ? fmt(d.date) : d.type == 'range' ? `${fmt(d.start)} to ${fmt(d.end)}` : d.dates.filter(Boolean).map(fmt).join(', ');
+        function makeHashtags(d, headline, description) {
+            const ignored = new Set(['about', 'after', 'also', 'and', 'are', 'at', 'been', 'being', 'between', 'for', 'from', 'had', 'has', 'have', 'into', 'its', 'more', 'most', 'not', 'of', 'on', 'our', 'over', 'that', 'the', 'their', 'there', 'these', 'this', 'those', 'through', 'was', 'were', 'with', 'will', 'would', 'your', 'event', 'report', 'organized', 'organised', 'department']);
+            const scores = new Map();
+            const addWords = (text, weight) => {
+                const words = String(text || '').match(/[A-Za-z][A-Za-z0-9]*/g) || [];
+                for (const raw of words) {
+                    const word = raw.toLowerCase();
+                    if (word.length < 3 || ignored.has(word) || /^\d+$/.test(word)) continue;
+                    const current = scores.get(word);
+                    const label = raw.length > 1 && raw === raw.toUpperCase() ? raw : word.charAt(0).toUpperCase() + word.slice(1);
+                    scores.set(word, { score: (current?.score || 0) + weight, label: current && current.label === current.label.toUpperCase() ? current.label : label })
+                }
+            };
+            addWords(headline, 5);
+            addWords(d.dept, 4);
+            addWords(description, 2);
+            return [...scores.entries()]
+                .sort((a, b) => b[1].score - a[1].score || a[0].localeCompare(b[0]))
+                .slice(0, 8)
+                .map(([, value]) => '#' + value.label)
+        }
+        // Draft generator: rule-based, uses only submitted facts. (No AI backend in this build.)
+        function generate(d) {
+            const dt = dateText(d), p = [];
+            p.push(`The ${d.title} took place at ${d.loc}${dt ? ` on ${dt}` : ''}. The event was organized by ${d.dept}.`);
+            p.push(...d.desc.trim().split(/\n{2,}/).map(x => x.trim()).filter(Boolean));
+            if (d.people.trim()) p.push(`Participants and speakers included: ${d.people.trim().replace(/\n+/g, ', ')}.`);
+            const miss = []; if (d.desc.trim().split(/\s+/).length < 40) miss.push('Event description is short; consider adding activities, purpose and outcomes.'); if (!d.people.trim()) miss.push('No notable participants listed.'); miss.push('Attendance figures, outcomes and quotations were not provided and have not been added.');
+            const subheadline = `A report from ${d.dept}${dt ? ` on ${dt}` : ''} at ${d.loc}.`;
+            return { headline: d.title, subheadline, hashtags: makeHashtags(d, d.title, d.desc), paras: p, miss, cover: 0, caps: d.photos.map(() => ''), show: d.photos.map(() => true) }
+        }
+        function preview() {
+            if (!draft || !article) return nav('/submit'); const d = draft, a = article, ph = d.photos;
+            app.innerHTML = topbar() + `<main class="review-page">
+<div class="review-heading"><div><div class="eyebrow">EVENT REPORT REVIEW</div><h1>${esc(d.title)}</h1><p class="mut">Prepared for review by ${esc(d.name)} · ${esc(d.dept)}</p></div><button class="btn close-preview" id="bk" aria-label="Back to form" title="Back to form">×</button></div>
+<section class="event-info-panel"><div class="detail-grid">
+<div><span class="detail-label">Location</span><span>${esc(d.loc)}</span></div><div><span class="detail-label">Event Date</span><span>${esc(dateText(d))}</span></div>
+<div><span class="detail-label">Organizing Department</span><span>${esc(d.dept)}</span></div><div><span class="detail-label">Email</span><span>${esc(d.email)}</span></div>
+<div><span class="detail-label">Department</span><span>${esc(d.sdept) || '—'}</span></div><div><span class="detail-label">Phone</span><span>${esc(d.phone) || '—'}</span></div>
+${d.people.trim() ? `<div class="detail-wide"><span class="detail-label">Participants</span><span>${esc(d.people).replace(/\n/g, '<br>')}</span></div>` : ''}
+<div class="detail-wide"><span class="detail-label">Description</span><span>${esc(d.desc).replace(/\n/g, '<br>')}</span></div>
+</div></section>
+<section class="generated-article"><h2 class="panel-heading">Generated Article</h2><h2 contenteditable id="hl" class="generated-headline">${esc(a.headline)}</h2><p contenteditable id="dek" class="generated-dek">${esc(a.subheadline || `A report from ${d.dept} at ${d.loc}.`)}</p><div id="body">${a.paras.map(x => `<p contenteditable>${esc(x)}</p>`).join('')}</div><div class="hashtag-section"><span class="detail-label">Hashtags</span><div id="hashtags" class="hashtag-list" aria-live="polite"></div></div></section>
+<section class="event-images"><h2 class="panel-heading">Event Images</h2>${ph.length ? `<div class="image-gallery">${ph.map((p, i) => a.show[i] ? `<figure class="${a.cover == i ? 'cover-selected' : ''}"><img src="${p.src}" alt="${esc(p.caption || `Event photo ${i + 1}`)}" loading="lazy"><figcaption contenteditable class="cap" data-c="${i}">${esc(a.caps[i]) || 'Add caption'}</figcaption><div class="image-actions"><button class="btn sm" data-cover="${i}" ${a.cover == i ? 'disabled' : ''}>${a.cover == i ? 'Cover image' : 'Set as cover'}</button><button class="btn sm er" data-h="${i}">Remove</button></div></figure>` : '').join('')}</div>` : '<p class="mut">No event images were added.</p>'}</section>
+<div class="review-footer"><button class="btn" id="bk-bottom">← Back to Form</button><div class="review-footer-actions"><button class="btn" id="rg">Regenerate Article</button><button class="btn p" id="sb">Submit Event</button></div></div></main>`;
+            $('#bk').onclick = () => nav('/submit');
+            $('#bk-bottom').onclick = () => nav('/submit');
+            $('#rg').onclick = async () => { if (await showDialog({ title: 'Regenerate article?', message: 'This replaces your current article edits with a new draft.', confirmLabel: 'Regenerate' })) { article = generate(d); preview() } };
+            document.querySelectorAll('[data-cover]').forEach(b => b.onclick = () => { sync(); a.cover = +b.dataset.cover; preview() });
+            document.querySelectorAll('[data-h]').forEach(b => b.onclick = () => { sync(); a.show[b.dataset.h] = false; preview() });
+            const refreshHashtags = () => {
+                a.hashtags = makeHashtags(d, $('#hl').textContent, d.desc);
+                $('#hashtags').textContent = a.hashtags.join('  ')
+            };
+            function sync() { a.headline = $('#hl').textContent.trim(); a.subheadline = $('#dek').textContent.trim(); a.paras = [...document.querySelectorAll('#body p')].map(p => p.textContent.trim()).filter(Boolean); a.hashtags = makeHashtags(d, a.headline, d.desc); document.querySelectorAll('[data-c]').forEach(c => a.caps[c.dataset.c] = c.textContent.replace('Add caption', '').trim()) }
+            ['#hl', '#dek', '#body'].forEach(selector => $(selector).addEventListener('input', refreshHashtags));
+            refreshHashtags();
+            let sent = false; const send = () => {
+                if (sent) return; sync(); if (!a.headline || !a.paras.length) { notify('Headline and article text are required.', 'error'); return } sent = true;
+                const ref = 'AVC-' + new Date().getFullYear() + '-' + Math.random().toString(36).slice(2, 8).toUpperCase();
+                const rec = { id: ref, ref, status: 'Submitted', submittedAt: new Date().toISOString(), form: { ...d, photos: ph }, article: JSON.parse(JSON.stringify(a)), history: [{ at: new Date().toISOString(), action: 'Submitted' }] };
+                const all = subs(); all.unshift(rec); const persisted = st.set('avc_subs', all);
+                draft = null; article = null; nav('/submission-success/' + ref);
+                if (!persisted) setTimeout(() => notify('Report submitted for this browser session, but storage is full. It may not be available after you close this tab.', 'error'), 0)
+            }
+            $('#sb').onclick = send
+        }
+        function success(ref) { const r = subs().find(x => x.ref == ref); app.innerHTML = topbar() + `<div class="form" style="text-align:center"><h1 style="color:var(--ok)">✓</h1><h2>Your event report has been submitted successfully.</h2><div class="card" style="text-align:left;margin:20px 0"><p><b>Reference:</b> ${esc(ref)}</p><p><b>Event:</b> ${esc(r?.form.title)}</p><p><b>Submitted:</b> ${r ? new Date(r.submittedAt).toLocaleString() : ''}</p><p><b>Status:</b> <span class="bd">Submitted</span></p></div><a class="btn p" href="#/">Back to home</a></div>` }
+        // ---- admin ----
+        function login() {
+            app.innerHTML = topbar() + `<div class="form" style="max-width:380px"><h1 style="font-size:22px">Editor / Admin Login</h1><div class="warn">Local mode: no Supabase project is connected, so this sign-in is NOT secure and only gates the UI on this browser.</div><label>Email</label><input id="em" type="email"><label>Password</label><input id="pw" type="password"><div class="err" id="le"></div><div class="bar"><button class="btn p" id="si">Sign In</button><button class="btn" id="fp">Forgot Password</button></div></div>`;
+            $('#fp').onclick = () => showDialog({ title: 'Password reset unavailable', message: 'Password reset requires Supabase Auth, which is not connected to this local-only build.', confirmLabel: 'Close' });
+            $('#si').onclick = () => { const e = $('#em').value.trim(); if (!/^\S+@\S+\.\S+$/.test(e) || !$('#pw').value) return $('#le').textContent = 'Enter a valid email and password.'; try { sessionStorage.setItem('avc_user', e) } catch (x) { mem.u = e } nav('/admin') }
+        }
+        function shell(act, html) {
+            const u = me(); if (!u) { nav('/login'); return false } const l = [['/admin', 'Dashboard', 'admin'], ['/admin/submissions', 'Submissions', 'subs'], ['/admin/users', 'Users', 'users']];
+            app.innerHTML = `<div class="adm"><aside class="side"><div class="logo" style="margin-bottom:12px">AVC <b>EVENTREPORT</b></div>${l.map(x => `<a href="#${x[0]}" class="${x[2] == act ? 'on' : ''}">${x[1]}</a>`).join('')}<div class="me">${esc(u)}<br>Admin<br><button class="btn sm" id="so" style="margin-top:8px">Sign out</button></div></aside><main class="main">${html}</main></div>`; $('#so').onclick = () => { try { sessionStorage.removeItem('avc_user') } catch (e) { mem.u = '' } mem.u = ''; nav('/') }; return true
+        }
+        function dash() { shell('admin', `<h1>Dashboard</h1><div class="mut">Welcome back. Manage event submissions below.</div><div class="dg"><div class="card"><div class="ic">${I.file}</div><h3>Submissions</h3><p>Review, approve, or reject submitted event reports.</p><br><a class="btn p" href="#/admin/submissions">View Submissions</a></div><div class="card"><div class="ic">${I.users}</div><h3>User Control</h3><p>Invite users and manage roles (admin/editor).</p><br><a class="btn p" href="#/admin/users">Manage Users</a></div></div>`) }
+        let fl = { q: '', s: '', dp: '' };
+        function list() {
+            const all = subs().filter(x => !x.deleted); const depts = [...new Set(all.map(x => x.form.dept))];
+            const rows = all.filter(x => (!fl.s || x.status == fl.s) && (!fl.dp || x.form.dept == fl.dp) && (!fl.q || [x.form.title, x.form.name, x.form.email, x.form.phone, x.form.dept, x.ref].join(' ').toLowerCase().includes(fl.q.toLowerCase())));
+            if (!shell('subs', `<h1>Submissions</h1><div class="mut">Review and manage all event submissions.</div><div class="mut publish-note">“Mark Published” records a local status only; it does not upload to an external website.</div><div class="row filters-row"><input id="q" placeholder="Search title, submitter or reference" value="${esc(fl.q)}"><select id="fs"><option value="">All statuses</option>${['Submitted', 'Under Review', 'Revision Requested', 'Approved', 'Rejected', 'Published'].map(s => `<option ${fl.s == s ? 'selected' : ''}>${s}</option>`).join('')}</select><select id="fd"><option value="">All Departments</option>${depts.map(s => `<option ${fl.dp == s ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select></div>
+<div class="bar"><button class="btn sm" id="csv">Export CSV</button></div>
+<div class="tw"><table><tr><th>Title</th><th>Submitter</th><th>Email</th><th>Phone</th><th>Date</th><th>Status</th><th>Actions</th><th>Website Submission</th></tr>${rows.length ? rows.map(x => `<tr><td><b>${esc(x.form.title)}</b><div class="mut ref-label">${x.ref}</div></td><td>${esc(x.form.name)}</td><td>${esc(x.form.email)}</td><td>${esc(x.form.phone || '—')}</td><td>${new Date(x.submittedAt).toLocaleDateString()}</td><td><span class="bd ${x.status}">${esc(x.status)}</span></td><td><div class="acts"><button class="btn sm" data-a="v" data-i="${esc(x.id)}" title="View/Edit" aria-label="View or edit ${esc(x.form.title)}">👁</button><button class="btn sm ok" data-a="ap" data-i="${esc(x.id)}" title="Correct / Approve" aria-label="Correct or approve ${esc(x.form.title)}">✓</button><button class="btn sm er" data-a="rj" data-i="${esc(x.id)}" title="Wrong / Reject" aria-label="Mark ${esc(x.form.title)} wrong or reject">✕</button><button class="btn sm er" data-a="dl" data-i="${esc(x.id)}" title="Delete" aria-label="Delete ${esc(x.form.title)}">🗑</button></div></td><td class="publish-cell">${x.status == 'Published' ? '<span class="bd Published">Published</span>' : `<button class="btn sm p" data-a="pub" data-i="${esc(x.id)}">Mark Published</button>`}</td></tr>`).join('') : `<tr><td colspan="8" class="mut empty-state">No submissions yet. Reports submitted from the public form appear here.</td></tr>`}</table></div>`)) return;
+            $('#q').oninput = e => { fl.q = e.target.value; list(); $('#q').focus(); $('#q').setSelectionRange(99, 99) }; $('#fs').onchange = e => { fl.s = e.target.value; list() }; $('#fd').onchange = e => { fl.dp = e.target.value; list() };
+            $('#csv').onclick = () => { const c = [['Reference', 'Title', 'Submitter', 'Email', 'Phone', 'Department', 'Date', 'Status', 'Website Submission'], ...rows.map(x => [x.ref, x.form.title, x.form.name, x.form.email, x.form.phone || '', x.form.dept, x.submittedAt, x.status, x.status == 'Published' ? 'Published' : 'Not published'])].map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n'); const a = document.createElement('a'); const url = URL.createObjectURL(new Blob(['\ufeff', c], { type: 'text/csv;charset=utf-8' })); a.href = url; a.download = 'submissions.csv'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000) };
+            document.querySelectorAll('[data-a]').forEach(b => b.onclick = () => act(b.dataset.a, b.dataset.i))
+        }
+        async function act(a, id) {
+            if (a == 'v') return nav('/admin/submissions/' + id);
+            if (a == 'rj') {
+                const reason = await showDialog({ title: 'Reject submission', message: 'Add a reason for rejecting this report.', confirmLabel: 'Reject', reason: true });
+                if (!reason) return;
+                const saved = updateSubmission(id, 'Rejected', r => { r.status = 'Rejected'; r.remarks = reason });
+                list();
+                if (!saved) notify('Rejected for this session, but could not save to browser storage.', 'error');
+                return
+            }
+            if (a == 'dl') {
+                const confirmed = await showDialog({ title: 'Delete submission?', message: 'This will remove the submission from the active list. This action cannot be undone from the interface.', confirmLabel: 'Delete' });
+                if (!confirmed) return;
+                const saved = updateSubmission(id, 'Deleted', r => { r.deleted = true });
+                list();
+                if (!saved) notify('Deleted for this session, but could not save to browser storage.', 'error');
+                return
+            }
+            const nextStatus = a == 'ap' ? 'Approved' : a == 'pub' ? 'Published' : null;
+            if (!nextStatus) return;
+            const saved = updateSubmission(id, nextStatus, r => { r.status = nextStatus });
+            list();
+            if (!saved) notify(`${nextStatus} for this session, but could not save to browser storage.`, 'error')
+        }
+        function detail(id) {
+            const r = subs().find(x => x.id == id); if (!r) return nav('/admin/submissions'); const f = r.form, a = r.article || {}, photos = Array.isArray(f.photos) ? f.photos : [];
+            if (!shell('subs', `<a href="#/admin/submissions" class="mut">← Submissions</a><h1 class="detail-title">${esc(f.title)}</h1><span class="bd ${r.status}">${r.status}</span> <span class="mut">${esc(r.ref)}</span>
+<div class="bar"><button class="btn ok" id="ap">Approve</button><button class="btn" id="rv">Request Revision</button><button class="btn er" id="rj">Reject</button><button class="btn" id="pr">Print / PDF</button>${r.status == 'Published' ? '<span class="bd Published">Published locally</span>' : '<button class="btn p" id="pub">Mark Published</button>'}</div>
+<div class="card event-submission-details"><h3>Original Event Information</h3><p><b>Date:</b> ${esc(dateText(f))}</p><p><b>Venue:</b> ${esc(f.loc)}</p><p><b>Organizing Department:</b> ${esc(f.dept)}</p><p><b>Description:</b> ${esc(f.desc)}</p><p><b>Participants:</b> ${esc(f.people) || '—'}</p><p><b>Submitter:</b> ${esc(f.name)}, ${esc(f.sdept)}<br>${esc(f.email)} · ${esc(f.phone)}</p>${r.remarks ? `<p><b>Rejection remarks:</b> ${esc(r.remarks)}</p>` : ''}${photos.length ? `<h3 class="section-heading">Event Images</h3><div class="gal">${photos.map((p, i) => `<img src="${esc(p.src)}" alt="${esc(p.caption || `Event photo ${i + 1}`)}" loading="lazy">`).join('')}</div>` : ''}</div>
+<h3 style="margin-top:24px">History</h3><div class="mut">${(r.history || []).map(h => `${new Date(h.at).toLocaleString()} — ${esc(h.action)}${h.by ? ' by ' + esc(h.by) : ''}`).join('<br>')}</div>`)) return;
+            $('#ap').onclick = () => { const saved = updateSubmission(id, 'Approved', x => x.status = 'Approved'); detail(id); if (!saved) notify('Approval could not be saved to browser storage.', 'error') };
+            $('#rv').onclick = () => { const saved = updateSubmission(id, 'Revision Requested', x => x.status = 'Revision Requested'); detail(id); if (!saved) notify('Revision request could not be saved to browser storage.', 'error') };
+            $('#rj').onclick = async () => {
+                const reason = await showDialog({ title: 'Reject submission', message: 'Add a reason for rejecting this report.', confirmLabel: 'Reject', reason: true });
+                if (!reason) return;
+                const saved = updateSubmission(id, 'Rejected', x => { x.status = 'Rejected'; x.remarks = reason });
+                detail(id);
+                if (!saved) notify('Rejection could not be saved to browser storage.', 'error')
+            };
+            $('#pr').onclick = () => {
+                const articleParagraphs = (a.paras || []).map(paragraph => `<p>${esc(paragraph)}</p>`).join('');
+                const photoMarkup = photos.map((photo, index) => `<figure><img src="${esc(photo.src)}" alt="${esc(photo.caption || `Event photo ${index + 1}`)}"><figcaption>${esc(photo.caption || `Event photo ${index + 1}`)}</figcaption></figure>`).join('');
+                const printHtml = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(f.title)} — AVC EVENTREPORT</title><style>
+                    *{box-sizing:border-box}body{font:14px/1.6 Arial,Helvetica,sans-serif;max-width:850px;margin:32px auto;padding:0 28px;color:#202226}
+                    header{padding-bottom:14px;border-bottom:2px solid #dfe2e6;margin-bottom:24px}.brand{font-weight:700;letter-spacing:.08em;font-size:13px;color:#535961}.ref{color:#72767d;font-size:12px}
+                    h1{font-size:27px;line-height:1.25;margin:6px 0}h2{font-size:19px;margin:28px 0 10px}.dek{font-style:italic;color:#626871}
+                    .facts{display:grid;grid-template-columns:1fr 1fr;gap:12px 24px;border:1px solid #dfe2e6;border-radius:8px;padding:16px;margin:20px 0}.facts div{overflow-wrap:anywhere}.label{display:block;color:#72767d;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+                    .description{white-space:pre-wrap}.article p{margin:0 0 14px;white-space:pre-wrap}.images{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}.images figure{margin:0;break-inside:avoid}.images img{display:block;width:100%;max-height:340px;object-fit:contain;background:#f1f2f4}.images figcaption{font-size:11px;color:#626871;padding-top:4px}
+                    @page{margin:18mm}@media print{body{max-width:none;margin:0;padding:0}header,h1,h2,figure,.facts{break-inside:avoid}.article{orphans:3;widows:3}}
+                    @media(max-width:600px){body{padding:0 16px}.facts{grid-template-columns:1fr}}
+                    </style></head><body><header><div class="brand">AVC EVENTREPORT</div><div class="ref">Submission ${esc(r.ref)} · ${esc(new Date(r.submittedAt).toLocaleString())}</div></header>
+                    <h1>${esc(f.title)}</h1><div class="facts"><div><span class="label">Event date</span>${esc(dateText(f))}</div><div><span class="label">Location</span>${esc(f.loc)}</div><div><span class="label">Organizing department</span>${esc(f.dept)}</div><div><span class="label">Submitter department</span>${esc(f.sdept || '—')}</div><div><span class="label">Submitter</span>${esc(f.name)}</div><div><span class="label">Email / phone</span>${esc(f.email)}<br>${esc(f.phone)}</div><div><span class="label">Status</span>${esc(r.status)}</div></div>
+                    ${f.people ? `<h2>Participants</h2><p class="description">${esc(f.people)}</p>` : ''}<h2>Event Description</h2><p class="description">${esc(f.desc)}</p>
+                    <article class="article"><h2>Generated Article</h2><h1>${esc(a.headline || f.title)}</h1>${a.subheadline ? `<p class="dek">${esc(a.subheadline)}</p>` : ''}${articleParagraphs}${Array.isArray(a.hashtags) && a.hashtags.length ? `<p>${a.hashtags.map(tag => esc(tag)).join(' ')}</p>` : ''}</article>
+                    ${photoMarkup ? `<section><h2>Event Images</h2><div class="images">${photoMarkup}</div></section>` : ''}</body></html>`;
+                const frame = document.createElement('iframe');
+                frame.title = 'Print-ready event report';
+                frame.setAttribute('aria-hidden', 'true');
+                frame.style.cssText = 'position:fixed;right:0;bottom:0;width:1px;height:1px;border:0;opacity:0;z-index:-1';
+                let started = false;
+                let cleanupTimer;
+                const removeFrame = () => { clearTimeout(cleanupTimer); frame.remove() };
+                frame.onload = () => {
+                    if (started || !frame.contentWindow) return;
+                    started = true;
+                    try {
+                        frame.contentWindow.addEventListener('afterprint', removeFrame, { once: true });
+                        frame.contentWindow.focus();
+                        frame.contentWindow.print();
+                        cleanupTimer = setTimeout(removeFrame, 120000)
+                    } catch (error) {
+                        removeFrame();
+                        notify('The print dialog could not be opened. Please try your browser’s Print command.', 'error')
+                    }
+                };
+                frame.srcdoc = printHtml;
+                document.body.append(frame)
+            };
+            if ($('#pub')) $('#pub').onclick = () => { const saved = updateSubmission(id, 'Published', x => x.status = 'Published'); detail(id); if (!saved) notify('Published status could not be saved to browser storage.', 'error') }
+        }
+        function users() { shell('users', `<h1>User Management</h1><div class="mut">Invite users and manage roles.</div><div class="warn constrained-panel">User invitations, roles, and access control need a connected authentication service. They are not available in this local-only build.</div><div class="tw constrained-panel"><table><tr><th>Email</th><th>Role</th></tr><tr><td>${esc(me())}</td><td>Admin (local session)</td></tr></table></div>`) }
+        function route() {
+            const h = (location.hash || '#/').slice(1); scrollTo(0, 0);
+            if (h == '/') home(); else if (h == '/submit') submit(); else if (h == '/article-preview') preview(); else if (h.startsWith('/submission-success/')) success(h.split('/')[2]); else if (h == '/login') login(); else if (h == '/admin') dash(); else if (h == '/admin/submissions') list(); else if (h.startsWith('/admin/submissions/')) detail(h.split('/')[3]); else if (h == '/admin/users') users(); else home();
+            revealPageElements()
+        }
+        function revealPageElements() {
+            if (!('IntersectionObserver' in window) || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+            const targets = app.querySelectorAll('.sec, .grid3 .card, .dg .card, .form, .art, .main > h1, .main > .mut, .bar, .tw, .cols > .card, .warn');
+            const observer = new IntersectionObserver(entries => {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.classList.add('motion-visible');
+                        observer.unobserve(entry.target)
+                    }
+                })
+            }, { threshold: 0.12, rootMargin: '0px 0px -32px 0px' });
+            targets.forEach((target, index) => {
+                if (target.classList.contains('motion-reveal')) return;
+                target.classList.add('motion-reveal');
+                if (target.matches('.grid3 .card, .dg .card')) target.style.setProperty('--motion-delay', `${(index % 3) * 85}ms`);
+                observer.observe(target)
+            })
+        }
+        addEventListener('hashchange', route); route();
+    </script>
+</body>
+
+</html>
